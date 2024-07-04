@@ -1,9 +1,9 @@
 import { configureStore, ThunkAction, Action } from '@reduxjs/toolkit';
-import counterReducer from '../features/counter/counterSlice';
+import astVisReducer from '../features/ASTVis/astVisSlice';
 
 export const store = configureStore({
   reducer: {
-    counter: counterReducer,
+    astVis: astVisReducer,
   },
 });
 

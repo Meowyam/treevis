@@ -11,3 +11,26 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+-- tree
+
+.node circle {
+  fill: #fff;
+  stroke: #4caf50;
+  stroke-width: 0.5px;
+}
+
+.node text {
+  font: 1rem sans-serif;
+}
+
+.link {
+  fill: none;
+  stroke: #ccc;
+  stroke-width: 1px;
+}
+
+.arrow {
+  font-size: 1.2rem;
+  fill: #3498db;
+}
