@@ -127,12 +127,13 @@ const ASTVis: React.FC = () => {
       </div>
       <div>
         <h2>or state the path to your json grammar</h2>
+        <h4>or try the example foods grammar:</h4>
         <form onSubmit={handlePathSubmit}>
           <input 
             type="text" 
             value={filePath} 
             onChange={(e) => setFilePath(e.target.value)} 
-            placeholder="enter path/url"
+            placeholder="https://raw.githubusercontent.com/Meowyam/treevis/main/examples/Foods.json"
           />
           <button type="submit">load grammar</button>
         </form>
