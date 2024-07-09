@@ -1,11 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
+import { 
+  Button, 
+  Popover, 
+  List, 
+  ListItem, 
+  ListItemButton,
+  ListItemText, 
+  Typography 
+} from '@mui/material';
 
 interface GrammarNode {
   name: string;
   children?: GrammarNode[];
-  type?: string;
-  fid?: number;
+  type: 'cat' | 'fun';
+  funs?: string[];
+  originalName?: string;
 }
 
 interface AbstractGrammar {
@@ -28,28 +38,37 @@ const ASTVis: React.FC = () => {
   const [filePath, setFilePath] = useState<string>('');
   const [grammar, setGrammar] = useState<Grammar | null>(null);
   const [abstractAST, setAbstractAST] = useState<GrammarNode | null>(null);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedFuns, setSelectedFuns] = useState<string[]>([]);
+  const [selectedNode, setSelectedNode] = useState<d3.HierarchyPointNode<GrammarNode> | null>(null);
 
   const transformAbstractToTree = (grammar: Grammar): GrammarNode => {
     const startCat = grammar.abstract.startcat;
 
     const buildTree = (cat: string, visited: Set<string>): GrammarNode => {
       if (visited.has(cat)) {
-        return { name: cat, children: [] };
+        return { name: cat, type: 'cat' };
       }
 
       visited.add(cat);
-      const node: GrammarNode = { name: cat, children: [] };
-      const funs = Object.entries(grammar.abstract.funs).filter(
-        ([, funDetails]) => funDetails.cat === cat
-      );
+      const node: GrammarNode = { name: cat, children: [], type: 'cat' };
+      
+      const funs = Object.entries(grammar.abstract.funs)
+        .filter(([, funDetails]) => funDetails.cat === cat)
+        .map(([funName]) => funName);
+      
+      node.funs = funs;
 
-      funs.forEach(([funName, funDetails]) => {
-        const funNode: GrammarNode = { name: funName, children: [], type: 'fun' };
-        funDetails.args.forEach((arg: string) => {
-          funNode.children?.push(buildTree(arg, new Set(visited)));
+      Object.values(grammar.abstract.funs)
+        .filter(fun => fun.cat === cat)
+        .forEach(fun => {
+          fun.args.forEach(arg => {
+            if (!node.children?.some(child => child.name === arg)) {
+              node.children?.push(buildTree(arg, new Set(visited)));
+            }
+          });
         });
-        node.children?.push(funNode);
-      });
 
       visited.delete(cat);
       return node;
@@ -116,12 +135,12 @@ const ASTVis: React.FC = () => {
         .y(d => d.x)
       );
 
-  const nodeGroup = svg.selectAll('.node')
-    .data(treeData.descendants())
-    .enter().append('g')
-    .attr('class', 'node')
-    .attr('transform', d => `translate(${d.y},${d.x})`)
-    .on('click', (event: MouseEvent, d: d3.HierarchyNode<GrammarNode>) => handleNodeClick(event, d as d3.HierarchyPointNode<GrammarNode>));
+    const nodeGroup = svg.selectAll('.node')
+      .data(treeData.descendants())
+      .enter().append('g')
+      .attr('class', 'node')
+      .attr('transform', d => `translate(${d.y},${d.x})`)
+      .on('click', handleNodeClick);
 
     nodeGroup.append('circle')
       .attr('r', 4.5);
@@ -134,22 +153,36 @@ const ASTVis: React.FC = () => {
   };
 
   const handleNodeClick = (event: MouseEvent, d: d3.HierarchyPointNode<GrammarNode>) => {
-    if (d.data.type === 'fun' && d.children) {
-      d.data.children = d.children.map(child => ({
-        ...child.data,
-        name: `Select ${child.data.name}`
-      }));
-      d.children = undefined;
-    } else if (!d.children && d.data.type === 'fun' && d.data.children) {
-      d.children = d.data.children.map(child => 
-        d3.hierarchy({
-          ...child,
-          name: child.name.replace('Select ', '')
-        })
-      ) as d3.HierarchyPointNode<GrammarNode>[];
+    if (d.data.type === 'cat' && d.data.funs) {
+      setSelectedNode(d);
+      setAnchorEl(event.currentTarget as HTMLElement);
     }
-    updateTree(d3.hierarchy(d.data));
   };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+    setSelectedNode(null);
+  };
+
+  const handleFunctionSelect = (fun: string) => {
+    if (selectedNode) {
+      selectedNode.data.originalName = selectedNode.data.originalName || selectedNode.data.name;
+      selectedNode.data.name = fun;
+      setAbstractAST({...abstractAST!});
+      handleClose();
+    }
+  };
+
+  const handleReset = () => {
+    if (selectedNode && selectedNode.data.originalName) {
+      selectedNode.data.name = selectedNode.data.originalName;
+      setAbstractAST({...abstractAST!});
+      handleClose();
+    }
+  };
+
+  const open = Boolean(anchorEl);
+  const id = open ? 'simple-popover' : undefined;
 
   useEffect(() => {
     if (abstractAST && svgRef.current) {
@@ -162,11 +195,12 @@ const ASTVis: React.FC = () => {
     <div>
       <div>
         <h2>Upload your grammar in a JSON format</h2>
+        <h4>(<a href="https://github.com/GrammaticalFramework/gf-typescript">see instructions here on how to do it</a>)</h4>
         <input type="file" accept=".json" onChange={handleFileUpload} />
       </div>
       <div>
         <h2>Or state the path to your JSON grammar</h2>
-        <h4>(or try the example foods grammar)</h4>
+        <h4>(<a href="https://raw.githubusercontent.com/Meowyam/treevis/main/examples/Foods.json">or try the example foods grammar</a>)</h4>
         <form onSubmit={handlePathSubmit}>
           <input
             type="text"
@@ -178,6 +212,34 @@ const ASTVis: React.FC = () => {
         </form>
       </div>
       <svg ref={svgRef}></svg>
+      <Popover
+        id={id}
+        open={open}
+        anchorEl={anchorEl}
+        onClose={handleClose}
+        anchorOrigin={{
+          vertical: 'bottom',
+          horizontal: 'center',
+        }}
+        transformOrigin={{
+          vertical: 'top',
+          horizontal: 'center',
+        }}
+      >
+        <Typography sx={{ p: 2 }}>{selectedNode?.data.originalName || selectedNode?.data.name}</Typography>
+        <List>
+          {selectedNode?.data.funs?.map((fun, index) => (
+            <ListItem key={index} disablePadding>
+              <ListItemButton onClick={() => handleFunctionSelect(fun)}>
+                <ListItemText primary={fun} />
+              </ListItemButton>
+            </ListItem>
+          ))}
+        </List>
+        {selectedNode?.data.originalName && (
+          <Button onClick={handleReset} fullWidth>Reset to {selectedNode.data.originalName}</Button>
+        )}
+      </Popover>
     </div>
   );
 };
