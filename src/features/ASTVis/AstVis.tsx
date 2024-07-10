@@ -39,8 +39,6 @@ const ASTVis: React.FC = () => {
   const [grammar, setGrammar] = useState<Grammar | null>(null);
   const [abstractAST, setAbstractAST] = useState<GrammarNode | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [selectedFuns, setSelectedFuns] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<d3.HierarchyPointNode<GrammarNode> | null>(null);
 
   const transformAbstractToTree = (grammar: Grammar): GrammarNode => {
@@ -140,6 +138,7 @@ const ASTVis: React.FC = () => {
       .enter().append('g')
       .attr('class', 'node')
       .attr('transform', d => `translate(${d.y},${d.x})`)
+      .attr('cursor', 'pointer')
       .on('click', handleNodeClick);
 
     nodeGroup.append('circle')
