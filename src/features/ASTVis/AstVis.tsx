@@ -50,7 +50,7 @@ const ASTVis: React.FC = () => {
       if (visited.has(cat)) {
         return { name: cat, type: 'cat' };
       }
-
+    
       visited.add(cat);
       const node: GrammarNode = { name: cat, children: [], type: 'cat' };
       
@@ -59,7 +59,7 @@ const ASTVis: React.FC = () => {
         .map(([funName]) => funName);
       
       node.funs = funs;
-
+    
       Object.values(grammar.abstract.funs)
         .filter(fun => fun.cat === cat)
         .forEach(fun => {
@@ -69,7 +69,7 @@ const ASTVis: React.FC = () => {
             }
           });
         });
-
+    
       visited.delete(cat);
       return node;
     };
@@ -152,11 +152,18 @@ const ASTVis: React.FC = () => {
       .text(d => d.data.name);
   };
 
+  const getOptionsForNode = (node: d3.HierarchyPointNode<GrammarNode>): string[] => {
+    if (!grammar) return [];
+  
+    const category = node.data.name;
+    return Object.entries(grammar.abstract.funs)
+      .filter(([, funDetails]) => funDetails.cat === category)
+      .map(([funName]) => funName);
+  };
+
   const handleNodeClick = (event: MouseEvent, d: d3.HierarchyPointNode<GrammarNode>) => {
-    if (d.data.type === 'cat' && d.data.funs) {
-      setSelectedNode(d);
-      setAnchorEl(event.currentTarget as HTMLElement);
-    }
+    setSelectedNode(d);
+    setAnchorEl(event.currentTarget as HTMLElement);
   };
 
   const handleClose = () => {
@@ -228,10 +235,10 @@ const ASTVis: React.FC = () => {
       >
         <Typography sx={{ p: 2 }}>{selectedNode?.data.originalName || selectedNode?.data.name}</Typography>
         <List>
-          {selectedNode?.data.funs?.map((fun, index) => (
+          {selectedNode && getOptionsForNode(selectedNode).map((option, index) => (
             <ListItem key={index} disablePadding>
-              <ListItemButton onClick={() => handleFunctionSelect(fun)}>
-                <ListItemText primary={fun} />
+              <ListItemButton onClick={() => handleFunctionSelect(option)}>
+                <ListItemText primary={option} />
               </ListItemButton>
             </ListItem>
           ))}
