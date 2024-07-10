@@ -10,14 +10,50 @@ import {
   Typography 
 } from '@mui/material';
 
+  interface Production {
+  type: string;
+  fid: number;
+  args: Arg[];
+}
+
+interface Arg {
+type: string;
+  hypos: any[];
+  fid: number;
+}
+
+interface ConcreteFunction {
+  name: string;
+  lins: number[];
+}
+
+type Sequence = SymCat | SymKS | SymLit;
+
+interface SymCat {
+  type: 'SymCat';
+  args: number[];
+}
+
+interface SymKS {
+  type: 'SymKS';
+  args: string[];
+}
+
+interface SymLit {
+  type: 'SymLit';
+  args: number[];
+}
+
 interface GrammarNode {
   name: string;
   children?: GrammarNode[];
   type: 'cat' | 'fun';
   funs?: string[];
   originalName?: string;
+  concreteFunctions?: {
+    [key: string]: string[];
+  };
 }
-
 interface AbstractGrammar {
   name: string;
   startcat: string;
@@ -29,8 +65,34 @@ interface AbstractGrammar {
   };
 }
 
+interface ConcreteGrammar {
+  flags: {
+    language: string;
+  };
+
+  productions: {
+    [key: string]: Production[];
+  };
+
+  functions: ConcreteFunction[];
+
+  sequences: Sequence[][];
+
+  categories: {
+    [key: string]: {
+      start: number;
+      end: number;
+    };
+  };
+
+  totalfids: number;
+}
+
 interface Grammar {
   abstract: AbstractGrammar;
+  concretes: {
+    [key: string]: ConcreteGrammar;
+  };
 }
 
 const ASTVis: React.FC = () => {
@@ -40,6 +102,14 @@ const ASTVis: React.FC = () => {
   const [abstractAST, setAbstractAST] = useState<GrammarNode | null>(null);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [selectedNode, setSelectedNode] = useState<d3.HierarchyPointNode<GrammarNode> | null>(null);
+
+  const [grammarMode, setGrammarMode] = useState<'abstract' | 'concrete'>('abstract');
+  const [selectedConcrete, setSelectedConcrete] = useState<string | null>(null);
+
+  const getConcreteLanguages = (): string[] => {
+    if (!grammar || !grammar.concretes) return [];
+    return Object.values(grammar.concretes).map(concrete => concrete.flags.language);
+  };
 
   const transformAbstractToTree = (grammar: Grammar): GrammarNode => {
     const startCat = grammar.abstract.startcat;
@@ -57,6 +127,16 @@ const ASTVis: React.FC = () => {
         .map(([funName]) => funName);
       
       node.funs = funs;
+    
+      if (grammar.concretes) {
+        node.concreteFunctions = {};
+        Object.entries(grammar.concretes).forEach(([lang, concrete]) => {
+          if (concrete.productions[cat]) {
+            node.concreteFunctions![lang] = concrete.productions[cat]
+              .map(prod => concrete.functions[prod.fid].name);
+          }
+        });
+      }
     
       Object.values(grammar.abstract.funs)
         .filter(fun => fun.cat === cat)
@@ -83,6 +163,12 @@ const ASTVis: React.FC = () => {
         const json = JSON.parse(text);
         setGrammar(json);
         setAbstractAST(transformAbstractToTree(json));
+        setGrammarMode('abstract');
+        const concreteLanguages = Object.values(json.concretes).map((concrete) => (concrete as ConcreteGrammar).flags.language);
+        console.log("concrete", concreteLanguages)
+        if (concreteLanguages.length > 0) {
+          setSelectedConcrete(concreteLanguages[0]);
+        }
       } catch (error) {
         console.error('Error parsing JSON:', error);
       }
@@ -99,10 +185,16 @@ const ASTVis: React.FC = () => {
       const json = await response.json();
       setGrammar(json);
       setAbstractAST(transformAbstractToTree(json));
+      setGrammarMode('abstract');
+      const concreteLanguages = Object.values(json.concretes).map((concrete) => (concrete as ConcreteGrammar).flags.language);
+      if (concreteLanguages.length > 0) {
+        setSelectedConcrete(concreteLanguages[0]);
+      }
     } catch (error) {
       console.error('Error fetching JSON:', error);
     }
   };
+
 
   const updateTree = (root: d3.HierarchyNode<GrammarNode>) => {
     if (!svgRef.current) return;
@@ -148,17 +240,40 @@ const ASTVis: React.FC = () => {
       .attr('dy', '.31em')
       .attr('x', d => d.children ? -8 : 8)
       .style('text-anchor', d => d.children ? 'end' : 'start')
-      .text(d => d.data.name);
+      .text(d => {
+        if (grammarMode === 'abstract') {
+          return d.data.name;
+        } else if (grammarMode === 'concrete' && selectedConcrete) {
+          return d.data.concreteFunctions?.[selectedConcrete]?.[0] || d.data.name;
+        }
+        return d.data.name;
+      });
   };
 
   const getOptionsForNode = (node: d3.HierarchyPointNode<GrammarNode>): string[] => {
     if (!grammar) return [];
-  
+
     const category = node.data.name;
-    return Object.entries(grammar.abstract.funs)
-      .filter(([, funDetails]) => funDetails.cat === category)
-      .map(([funName]) => funName);
-  };
+
+    if (grammarMode === 'abstract') {
+        return Object.entries(grammar.abstract.funs)
+            .filter(([, funDetails]) => funDetails.cat === category)
+            .map(([funName]) => funName);
+    } else if (selectedConcrete) {
+        const concreteLang = Object.keys(grammar.concretes).find(
+            key => grammar.concretes[key].flags.language === selectedConcrete
+        );
+        if (concreteLang) {
+            const concrete = grammar.concretes[concreteLang];
+            if (concrete.productions[category]) {
+                return concrete.productions[category]
+                    .map(prod => concrete.functions[prod.fid].name);
+            }
+        }
+    }
+
+    return [];
+};
 
   const handleNodeClick = (event: MouseEvent, d: d3.HierarchyPointNode<GrammarNode>) => {
     setSelectedNode(d);
@@ -170,10 +285,40 @@ const ASTVis: React.FC = () => {
     setSelectedNode(null);
   };
 
+  const parseLins = (lins: number[], sequences: Sequence[][]): string => {
+    return lins.map(linIndex => {
+      const sequence = sequences[linIndex];
+      return sequence.map(seq => {
+        if (seq.type === 'SymKS') {
+          return seq.args[0];
+        }
+        if (seq.type === 'SymCat') {
+          return `{${seq.args[1]}}`;
+        }
+        if (seq.type === 'SymLit') {
+          return seq.args.join('');
+        }
+        return '';
+      }).join(' ');
+    }).join(' ');
+  };
+
   const handleFunctionSelect = (fun: string) => {
-    if (selectedNode) {
+    if (selectedNode && grammar && selectedConcrete) {
       selectedNode.data.originalName = selectedNode.data.originalName || selectedNode.data.name;
-      selectedNode.data.name = fun;
+
+      if (grammarMode === 'abstract') {
+        selectedNode.data.name = fun;
+      } else if (selectedConcrete && grammar.concretes[selectedConcrete]) {
+        const concrete = grammar.concretes[selectedConcrete];
+        const funIndex = concrete.functions.findIndex(f => f.name === fun);
+        if (funIndex !== -1) {
+          const lins = concrete.functions[funIndex].lins;
+          const parsedLin = parseLins(lins, concrete.sequences);
+          selectedNode.data.name = parsedLin;
+        }
+      }
+
       setAbstractAST({...abstractAST!});
       handleClose();
     }
@@ -195,7 +340,7 @@ const ASTVis: React.FC = () => {
       const rootNode = d3.hierarchy(abstractAST);
       updateTree(rootNode);
     }
-  }, [abstractAST]);
+  }, [abstractAST, grammarMode, selectedConcrete]);
 
   return (
     <div>
@@ -217,6 +362,30 @@ const ASTVis: React.FC = () => {
           <button type="submit">Load Grammar</button>
         </form>
       </div>
+
+      {grammar && (
+        <div>
+          <Button 
+            variant={grammarMode === 'abstract' ? 'contained' : 'outlined'}
+            onClick={() => setGrammarMode('abstract')}
+          >
+            Abstract Grammar
+          </Button>
+          {getConcreteLanguages().map(lang => (
+            <Button 
+              key={lang}
+              variant={grammarMode === 'concrete' && selectedConcrete === lang ? 'contained' : 'outlined'}
+              onClick={() => {
+                setGrammarMode('concrete');
+                setSelectedConcrete(lang);
+              }}
+            >
+              {lang}
+            </Button>
+          ))}
+        </div>
+      )}
+
       <svg ref={svgRef}></svg>
       <Popover
         id={id}
@@ -237,7 +406,12 @@ const ASTVis: React.FC = () => {
           {selectedNode && getOptionsForNode(selectedNode).map((option, index) => (
             <ListItem key={index} disablePadding>
               <ListItemButton onClick={() => handleFunctionSelect(option)}>
-                <ListItemText primary={option} />
+                <ListItemText 
+                  primary={option} 
+                  secondary={
+                    grammarMode === 'concrete' && selectedConcrete && selectedNode.data.concreteFunctions?.[selectedConcrete]?.[index]
+                  }
+                />
               </ListItemButton>
             </ListItem>
           ))}
