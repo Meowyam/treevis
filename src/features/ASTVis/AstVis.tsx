@@ -10,7 +10,7 @@ import {
   Typography 
 } from '@mui/material';
 
-  interface Production {
+interface Production {
   type: string;
   fid: number;
   args: Arg[];
@@ -92,6 +92,21 @@ interface Grammar {
   abstract: AbstractGrammar;
   concretes: {
     [key: string]: ConcreteGrammar;
+  };
+}
+
+interface ConcreteFunctionWithLin extends ConcreteFunction {
+  resolvedLins?: string[];
+}
+
+interface ConcreteGrammarWithLin extends ConcreteGrammar {
+  functions: ConcreteFunctionWithLin[];
+  resolvedSequences: string[];
+}
+
+interface GrammarWithLin extends Grammar {
+  concretes: {
+    [key: string]: ConcreteGrammarWithLin;
   };
 }
 
@@ -244,6 +259,7 @@ const ASTVis: React.FC = () => {
         if (grammarMode === 'abstract') {
           return d.data.name;
         } else if (grammarMode === 'concrete' && selectedConcrete) {
+          console.log("selectedConcrete", selectedConcrete)
           return d.data.concreteFunctions?.[selectedConcrete]?.[0] || d.data.name;
         }
         return d.data.name;
@@ -256,20 +272,22 @@ const ASTVis: React.FC = () => {
     const category = node.data.name;
 
     if (grammarMode === 'abstract') {
-        return Object.entries(grammar.abstract.funs)
-            .filter(([, funDetails]) => funDetails.cat === category)
-            .map(([funName]) => funName);
+      return Object.entries(grammar.abstract.funs)
+        .filter(([, funDetails]) => funDetails.cat === category)
+        .map(([funName]) => funName);
     } else if (selectedConcrete) {
         const concreteLang = Object.keys(grammar.concretes).find(
-            key => grammar.concretes[key].flags.language === selectedConcrete
+          key => grammar.concretes[key].flags.language === selectedConcrete
         );
         if (concreteLang) {
+          const fixedConcreteLin = replaceLins(grammar) as GrammarWithLin;
+          console.log("fixedlins", JSON.stringify(fixedConcreteLin, null, 2));
             const concrete = grammar.concretes[concreteLang];
             if (concrete.productions[category]) {
-                return concrete.productions[category]
-                    .map(prod => concrete.functions[prod.fid].name);
-            }
-        }
+              return concrete.productions[category]
+                .map(prod => concrete.functions[prod.fid].name);
+          }
+      }
     }
 
     return [];
@@ -285,7 +303,7 @@ const ASTVis: React.FC = () => {
     setSelectedNode(null);
   };
 
-  const parseLins = (lins: number[], sequences: Sequence[][]): string => {
+  function parseLins(lins: number[], sequences: Sequence[][]): string {
     return lins.map(linIndex => {
       const sequence = sequences[linIndex];
       return sequence.map(seq => {
@@ -301,8 +319,57 @@ const ASTVis: React.FC = () => {
         return '';
       }).join(' ');
     }).join(' ');
-  };
-
+  }
+  
+  function resolveSequence(sequence: Sequence[], cats: string[]): string {
+    return sequence.map(seq => {
+      if (seq.type === 'SymKS') {
+        return seq.args[0];
+      }
+      if (seq.type === 'SymCat') {
+        const catIndex = seq.args[0];
+        return cats[catIndex] || `{${catIndex}}`;
+      }
+      if (seq.type === 'SymLit') {
+        return `<${seq.args.join(',')}>`;
+      }
+      return '';
+    }).join(' ');
+  }
+  
+  function replaceLins(grammar: Grammar): GrammarWithLin {
+    const resolvedGrammar: GrammarWithLin = {
+      ...grammar,
+      concretes: {}
+    };
+  
+    const cats = new Set<string>();
+    Object.values(grammar.abstract.funs).forEach(fun => {
+      cats.add(fun.cat);
+      fun.args.forEach(arg => cats.add(arg));
+    });
+    const catsArray = Array.from(cats);
+  
+    for (const [concreteName, concreteGrammar] of Object.entries(grammar.concretes)) {
+      const resolvedFunctions: ConcreteFunctionWithLin[] = concreteGrammar.functions.map(func => ({
+        ...func,
+        resolvedLins: func.lins.map(linIndex => 
+          resolveSequence(concreteGrammar.sequences[linIndex], catsArray)
+        )
+      }));
+  
+      resolvedGrammar.concretes[concreteName] = {
+        ...concreteGrammar,
+        functions: resolvedFunctions,
+        resolvedSequences: concreteGrammar.sequences.map(seq => 
+          resolveSequence(seq, catsArray)
+        )
+      };
+    }
+  
+    return resolvedGrammar;
+  }
+  
   const handleFunctionSelect = (fun: string) => {
     if (selectedNode && grammar && selectedConcrete) {
       selectedNode.data.originalName = selectedNode.data.originalName || selectedNode.data.name;
